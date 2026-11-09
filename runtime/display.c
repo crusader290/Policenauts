@@ -12,10 +12,13 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include "audio.h"
 #include "display.h"
 #include "gpu.h"
 
-#define FRAME_SECONDS (1.0 / 59.94)
+/* One virtual frame (263 lines x 2152 cycles at 33.8688 MHz, ~59.84 Hz). Pacing to
+   exactly this keeps the SPU's 44.1 kHz output in step with the audio device. */
+#define FRAME_SECONDS (565976.0 / 33868800.0)
 
 static HWND hwnd;
 static int headless, fast, dump_every = 60;
@@ -119,6 +122,7 @@ void display_vblank(void) {
         }
         present();
     }
+    audio_pump();
     if (!fast) {
         LARGE_INTEGER t;
         double target = (double)frame_no * FRAME_SECONDS;

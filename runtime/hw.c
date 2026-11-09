@@ -2,8 +2,8 @@
  *
  * Time is virtual: it advances when recompiled code touches hardware, runs loop
  * back-edges, or idles - never with the host clock - so runs are deterministic.
- * Subsystems (GPU, CD, SPU, MDEC) attach here as they're written; until then
- * unknown registers read back what was last written.
+ * Subsystems (GPU, CD, MDEC, SPU) attach here; unimplemented registers read back
+ * what was last written.
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -11,6 +11,8 @@
 #include "cd.h"
 #include "display.h"
 #include "gpu.h"
+#include "mdec.h"
+#include "spu.h"
 
 #define CPU_HZ         33868800ull
 #define LINE_CYCLES    2152ull          /* NTSC: 263 lines at ~59.8 Hz */
@@ -124,10 +126,31 @@ static void dma_irq(int ch) {
     }
 }
 
+static int mdec_out_waiting;            /* DMA1 started before its data was decoded */
+
+static uint32_t block_words(uint32_t bcr) {
+    uint32_t words = (bcr & 0xFFFF) ? (bcr & 0xFFFF) : 0x10000;
+    if (bcr >> 16) words *= bcr >> 16;
+    return words;
+}
+
 static void dma_run(int ch) {
     uint32_t base = 0x1F801080u + 0x10u * ch;
     uint32_t madr = IO32(base) & 0x1FFFFC, bcr = IO32(base + 4), chcr = IO32(base + 8);
     switch (ch) {
+    case 0:                                /* RAM -> MDEC */
+        mdec_dma_in(madr, block_words(bcr));
+        break;
+    case 1: {                              /* MDEC -> RAM: wait until the pixels exist */
+        uint32_t words = block_words(bcr);
+        if (mdec_out_avail() < words) {
+            mdec_out_waiting = 1;
+            return;                        /* stays busy; retried when input arrives */
+        }
+        mdec_out_waiting = 0;
+        mdec_dma_out(madr, words);
+        break;
+    }
     case 6: {                              /* OTC: build reverse-linked empty ordering table */
         uint32_t n = bcr & 0xFFFF ? bcr & 0xFFFF : 0x10000;
         uint32_t a = madr;
@@ -141,6 +164,10 @@ static void dma_run(int ch) {
         cd_dma_read(madr, words);
         break;
     }
+    case 4:                                /* SPU RAM */
+        if (chcr & 1) spu_dma_write(madr, block_words(bcr));
+        else spu_dma_read(madr, block_words(bcr));
+        break;
     case 2: {                              /* GPU */
         uint32_t sync = (chcr >> 9) & 3;
         if (sync == 2) {                   /* linked list (ordering table) */
@@ -173,6 +200,7 @@ static void dma_run(int ch) {
         fprintf(stderr, "[dma] ch%d madr=%06X bcr=%08X chcr=%08X dicr=%08X dpcr=%08X\n",
                 ch, madr, bcr, chcr, IO32(DICR), IO32(DPCR));
     dma_irq(ch);
+    if (ch == 0 && mdec_out_waiting) dma_run(1);
 }
 
 /* ---- events and time ------------------------------------------------------------- */
@@ -186,6 +214,7 @@ static void run_events(CPU *c) {
     }
     for (int n = 0; n < 3; n++) timer_check(n);
     cd_update();
+    spu_run();
 }
 
 void psx_poll(CPU *c) {
@@ -202,6 +231,8 @@ void psx_idle(CPU *c) {
             if (x < t) t = x;
         }
     uint64_t x = cd_next_event();
+    if (x < t) t = x;
+    x = spu_next_event();
     if (x < t) t = x;
     if (t > now) now = t;
     psx_poll(c);
@@ -277,6 +308,12 @@ uint32_t hw_read(uint32_t addr, int size) {
     else if (p >= 0x1F801100u && p < 0x1F801130u) v = timer_read((p >> 4) & 3, p & 0xC);
     else if (p == 0x1F801814u) v = gpustat();
     else if (p == 0x1F801810u) v = gpu_read();
+    else if (p == 0x1F801820u || p == 0x1F801824u) v = mdec_read((p >> 2) & 1);
+    else if (p >= 0x1F801C00u && p < 0x1F802000u) {
+        v = spu_read16(p & ~1u);
+        if (size == 4) v |= (uint32_t)spu_read16((p & ~1u) + 2) << 16;
+        else if (size == 1 && (p & 1)) v >>= 8;
+    }
     else if (p >= 0x1F801800u && p < 0x1F801804u) {
         v = cd_read(p & 3);
         if (size > 1) fprintf(stderr, "warning: %d-bit CD register read %08X\n", size * 8, addr);
@@ -305,6 +342,17 @@ void hw_write(uint32_t addr, uint32_t val, int size) {
     if (p >= 0x1F801800u && p < 0x1F801804u) { cd_write(p & 3, (uint8_t)val); return; }
     if (p == 0x1F801810u) { gpu_gp0(val); return; }
     if (p == 0x1F801814u) { gpu_gp1(val); return; }
+    if (p == 0x1F801820u || p == 0x1F801824u) {
+        mdec_write((p >> 2) & 1, val);
+        if (mdec_out_waiting) dma_run(1);
+        return;
+    }
+    if (p >= 0x1F801C00u && p < 0x1F802000u) {
+        if (size == 1 && (p & 1)) return;                     /* odd byte writes are ignored */
+        spu_write16(p & ~1u, (uint16_t)val);
+        if (size == 4) spu_write16((p & ~1u) + 2, (uint16_t)(val >> 16));
+        return;
+    }
     if (p == DICR) {                                          /* flags are write-1-to-clear */
         uint32_t d = IO32(DICR);
         d = (d & 0xFF000000u & ~(val & 0x7F000000u)) | (val & 0x00FFFFFFu);
@@ -329,5 +377,7 @@ void hw_init(void) {
     if (ms) max_cycles = (uint64_t)(atof(ms) * (double)CPU_HZ);
     cd_init();
     gpu_init();
+    mdec_init();
+    spu_init();
     display_init();
 }

@@ -16,6 +16,3 @@ void gte_command(CPU *c, uint32_t cmd) {
     fprintf(stderr, "fatal: gte_command %07X unimplemented\n", cmd);
     exit(1);
 }
-
-/* XA-ADPCM decoding arrives with the SPU. */
-void cd_xa_sector(const uint8_t *raw) { (void)raw; }

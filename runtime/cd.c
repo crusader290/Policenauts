@@ -54,6 +54,8 @@ static struct {
     int sector_valid;
     uint8_t data[SECTOR_RAW]; int data_len, data_pos;
     uint8_t filter_file, filter_chan;
+    uint8_t vol[4], vol_pending[4];   /* audio matrix L->L, L->R, R->R, R->L (0x80 = 100%) */
+    uint8_t muted, adpcm_muted;
     uint8_t last_header[8];
 
     Pending q[16]; int nq;
@@ -154,7 +156,10 @@ static void command(uint8_t cmd) {
         cd.mode = 0; cd.reading = 0; drop_sector_irqs();
         push_stat(T_FIRST, 3); push_stat(T_SECOND, 2);
         break;
-    case 0x0B: case 0x0C: push_stat(T_FIRST, 3); break;            /* Mute / Demute */
+    case 0x0B: case 0x0C:                                          /* Mute / Demute */
+        cd.muted = cmd == 0x0B;
+        push_stat(T_FIRST, 3);
+        break;
     case 0x0D:                                                     /* Setfilter */
         cd.filter_file = np > 0 ? p[0] : 0; cd.filter_chan = np > 1 ? p[1] : 0;
         push_stat(T_FIRST, 3);
@@ -316,8 +321,21 @@ void cd_write(uint32_t reg, uint8_t v) {
         if (cd.iflag == 0 && cd.nq && cd.q[0].time < psx_cycles())
             cd.q[0].time = psx_cycles() + 1000;        /* next response after a short gap */
         break;
-    default: break;                                    /* audio volume registers */
+    case 2 * 4 + 2: cd.vol_pending[0] = v; break;      /* L-CD -> L-SPU */
+    case 2 * 4 + 3: cd.vol_pending[1] = v; break;      /* L-CD -> R-SPU */
+    case 3 * 4 + 1: cd.vol_pending[2] = v; break;      /* R-CD -> R-SPU */
+    case 3 * 4 + 2: cd.vol_pending[3] = v; break;      /* R-CD -> L-SPU */
+    case 3 * 4 + 3:                                    /* ADPCTL */
+        cd.adpcm_muted = v & 1;
+        if (v & 0x20) memcpy(cd.vol, cd.vol_pending, 4);
+        break;
+    default: break;
     }
+}
+
+void cd_audio_matrix(int m[4], int *mute) {
+    for (int i = 0; i < 4; i++) m[i] = cd.vol[i];
+    *mute = cd.muted || cd.adpcm_muted;
 }
 
 /* DMA channel 3: data FIFO -> RAM */
@@ -345,4 +363,5 @@ int cd_insert(const char *path) {
 void cd_init(void) {
     const char *t = getenv("PSX_TRACE_CD");
     cd.trace = t ? atoi(t) ? atoi(t) : 1 : 0;
+    cd.vol[0] = cd.vol[2] = cd.vol_pending[0] = cd.vol_pending[2] = 0x80;
 }
