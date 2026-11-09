@@ -10,21 +10,40 @@ derived from it (`extracted/`, `generated/`, `build/`) is git-ignored.
 
 ## Build
 
-Requirements: Python 3.11+, MSYS2 (`ucrt64` gcc, `mingw64` ninja) or any gcc/clang + ninja.
+Put your disc images in `rom/`, one folder per disc (`rom/<name> Disc 1/<name>.bin`) or loose
+(`rom/<name> Disc 1.bin`). Disc 2 is optional until the story reaches it. Then run:
+
+```bat
+build.bat
+build\policenauts.exe
+```
+
+`build.bat` fetches anything that's missing, then extracts, recompiles and compiles:
+
+- **Python 3.11+**: uses `py`/`python` if found, else installs Python 3.12 per-user with `winget`.
+- **ninja** (and the other Python requirements): pip-installed into `.venv/`.
+- **gcc**, tried in this order:
+  1. `gcc` on `PATH`;
+  2. a toolchain already in `tools/toolchain/`;
+  3. MSYS2 `C:\msys64\ucrt64`;
+  4. otherwise it downloads [w64devkit](https://github.com/skeeto/w64devkit) 2.10.1 into `tools/toolchain/`.
+
+Pass image paths to use discs from somewhere else: `build.bat D:\isos\disc1.bin [D:\isos\disc2.bin]`.
+Re-running it is an incremental build.
+
+To build by hand:
 
 ```bash
 python -m venv .venv && .venv/Scripts/python -m pip install -r requirements.txt
-export PATH=/c/msys64/ucrt64/bin:/c/msys64/mingw64/bin:$PATH
-.venv/Scripts/python tools/extract_all.py "<Disc 1 .bin>" extracted   # first time only
-.venv/Scripts/python recomp/recomp.py
-.venv/Scripts/python configure.py
+export PATH=/c/msys64/ucrt64/bin:$PWD/.venv/Scripts:$PATH
+.venv/Scripts/python configure.py      # [--disc disc1.bin] [--disc2 disc2.bin]
+ninja generated/funcs.h                # extract + recompile
+.venv/Scripts/python configure.py      # again, now that generated/sources.txt exists
 ninja
-./build/policenauts.exe
 ```
 
-`configure.py` finds the Disc 1 image in `Policenauts PSX*/` automatically (or pass
-`--disc`). After the first configure, `ninja` re-runs extraction and recompilation when
-their inputs change.
+After that, `ninja` alone re-runs extraction and recompilation when their inputs change. Re-run
+`configure.py` after adding a file to `runtime/`.
 
 ## Layout
 

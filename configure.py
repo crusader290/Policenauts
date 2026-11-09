@@ -21,26 +21,45 @@ sys.path.insert(0, os.path.join(ROOT, "tools"))
 from ninja_syntax import Writer  # noqa: E402
 
 
-def default_disc():
-    hits = sorted(glob.glob(os.path.join(ROOT, "Policenauts PSX*", "*Disc 1*", "*.bin")))
-    return hits[0] if hits else None
+def find_disc(n):
+    """rom/<...Disc n...>/<...>.bin, or a loose rom/<...Disc n...>.bin"""
+    for pat in (f"*Disc {n}*/*.bin", f"*Disc {n}*.bin"):
+        hits = sorted(glob.glob(os.path.join(ROOT, "rom", pat)))
+        if hits:
+            return hits[0]
+    return None
 
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--disc", default=default_disc(), help="Disc 1 .bin (MODE2/2352)")
+    ap.add_argument("--disc", default=find_disc(1), help="Disc 1 .bin (MODE2/2352), default rom/")
+    ap.add_argument("--disc2", help="Disc 2 .bin (default: found next to Disc 1)")
     ap.add_argument("--cc", default="gcc")
     ap.add_argument("--opt", default="-O2")
     args = ap.parse_args()
     if not args.disc:
-        sys.exit("disc image not found; pass --disc")
+        sys.exit("Disc 1 image not found: put it in rom/ or pass --disc")
 
     py = sys.executable.replace("\\", "/")
-    disc = os.path.relpath(args.disc, ROOT).replace("\\", "/")
+    if not os.path.isfile(args.disc):
+        sys.exit(f"disc image not found: {args.disc}")
+    try:
+        disc = os.path.relpath(args.disc, ROOT).replace("\\", "/")
+    except ValueError:                   # on another drive
+        disc = os.path.abspath(args.disc).replace("\\", "/")
 
     # Disc images for the runtime (Disc 2 is found next to Disc 1).
     os.makedirs(os.path.join(ROOT, "build"), exist_ok=True)
-    disc2 = sorted(glob.glob(os.path.join(ROOT, "Policenauts PSX*", "*Disc 2*", "*.bin")))
+    if args.disc2:
+        disc2 = [args.disc2]
+    else:                                # "... Disc 1 ..." -> "... Disc 2 ..." beside it
+        d1 = os.path.abspath(args.disc)
+        esc = glob.escape                # folder names like "[Eng]" are not patterns
+        pats = [os.path.join(esc(os.path.dirname(os.path.dirname(d1))), "*Disc 2*", "*.bin"),
+                os.path.join(esc(os.path.dirname(d1)), "*Disc 2*.bin")]
+        disc2 = next((sorted(glob.glob(p)) for p in pats if glob.glob(p)), [])
+        if not disc2 and find_disc(2):
+            disc2 = [find_disc(2)]
     with open(os.path.join(ROOT, "build", "discs.txt"), "w", newline="\n") as f:
         f.write(os.path.abspath(args.disc) + "\n")
         if disc2:

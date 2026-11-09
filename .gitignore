@@ -1,5 +1,6 @@
 # Game data and anything derived from it - never commit
 Policenauts PSX*/
+rom/
 *.bin
 *.cue
 *.iso
@@ -16,4 +17,5 @@ build.ninja
 .venv/
 __pycache__/
 tools/m2c/
+tools/toolchain/
 saves/

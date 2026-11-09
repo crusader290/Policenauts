@@ -2,3 +2,4 @@
 * text=auto eol=lf
 *.bin binary
 *.exe binary
+*.bat text eol=crlf
