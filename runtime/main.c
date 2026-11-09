@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include "bios.h"
 #include "cd.h"
+#include "log.h"
 
 void hw_init(void);
 
@@ -41,6 +42,7 @@ static void load_disc_list(void) {
 const char *psx_disc_path(int n) { return (n >= 0 && n < 2 && disc_paths[n][0]) ? disc_paths[n] : NULL; }
 
 int main(int argc, char **argv) {
+    log_init(argc, argv);                                 /* Policenauts.log */
     const char *exe = "extracted/disc1/NAUTS/SLPS_002.15";
     load_disc_list();
     for (int i = 1; i < argc; i++) {
@@ -52,6 +54,9 @@ int main(int argc, char **argv) {
     uint32_t pc, gp, sp;
     if (!load_exe(exe, &pc, &gp, &sp)) return 1;
     hw_init();
+    watchdog_init();
+    for (int i = 0; i < 2; i++)
+        fprintf(stderr, "disc %d: %s\n", i + 1, psx_disc_path(i) ? psx_disc_path(i) : "(none)");
     const char *boot = getenv("PSX_BOOT_DISC");          /* start with disc 2 in the drive */
     int disc = boot && atoi(boot) == 2 ? 2 : 1;
     if (!cd_insert_disc(disc)) fprintf(stderr, "warning: no disc %d image (run configure.py or pass --disc%d)\n", disc, disc);

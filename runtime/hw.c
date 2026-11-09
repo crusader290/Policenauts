@@ -8,6 +8,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include "bios.h"
+#include "log.h"
 #include "cd.h"
 #include "display.h"
 #include "gpu.h"
@@ -264,6 +265,22 @@ static void sample(uint32_t f) {
     samples[s].n = 1;
 }
 
+/* the busiest loop functions so far, most samples first (watchdog reports) */
+int hw_hot_funcs(uint32_t *func, uint32_t *count, int max) {
+    int n = 0;
+    uint32_t used[NSAMPLE] = { 0 };
+    while (n < max) {
+        int best = -1;
+        for (int i = 0; i < NSAMPLE; i++)
+            if (samples[i].n && !used[i] && (best < 0 || samples[i].n > samples[best].n)) best = i;
+        if (best < 0) break;
+        used[best] = 1;
+        func[n] = samples[best].func;
+        count[n++] = samples[best].n;
+    }
+    return n;
+}
+
 static void dump_and_exit(CPU *c) {
     fprintf(stderr, "\n=== stopped at %.2f virtual seconds ===\n", (double)now / CPU_HZ);
     fprintf(stderr, "i_stat=%03X i_mask=%03X irq_enabled=%d cur_func=%08X\n",
@@ -329,8 +346,7 @@ uint32_t hw_read(uint32_t addr, int size) {
     } else if (p >= 0x1FC00000u && p < 0x1FC80000u) {
         v = 0;                                    /* BIOS ROM: not present */
     } else {
-        fprintf(stderr, "fatal: read%d from unmapped %08X\n", size * 8, addr);
-        exit(1);
+        psx_fatal("read%d from unmapped %08X", size * 8, addr);
     }
     if (size == 1) v &= 0xFF;
     else if (size == 2) v &= 0xFFFF;

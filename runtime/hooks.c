@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include "psx.h"
+#include "log.h"
 
 static int klog = -1;
 
@@ -28,8 +29,7 @@ void **psx_jmpbuf(uint32_t mips_buf) {
         if (jmpbufs[i].addr == mips_buf) return jmpbufs[i].buf;
     for (int i = 0; i < MAX_JMPBUF; i++)
         if (!jmpbufs[i].addr) { jmpbufs[i].addr = mips_buf; return jmpbufs[i].buf; }
-    fprintf(stderr, "psx_jmpbuf: too many setjmp buffers\n");
-    abort();
+    psx_fatal("psx_jmpbuf: too many setjmp buffers");
 }
 
 /* longjmp(a0 = jmp_buf, a1 = value): restore what setjmp saved, return a1 from setjmp */
@@ -38,8 +38,7 @@ void hook_longjmp(CPU *c) {
     int i = 0;
     while (i < MAX_JMPBUF && jmpbufs[i].addr != b) i++;
     if (i == MAX_JMPBUF) {
-        fprintf(stderr, "longjmp to %08X without a recorded setjmp\n", b);
-        abort();
+        psx_fatal("longjmp to %08X without a recorded setjmp", b);
     }
     c->r[31] = MEM_LW(b + 0x00);
     c->r[29] = MEM_LW(b + 0x04);

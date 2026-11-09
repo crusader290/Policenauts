@@ -108,6 +108,9 @@ static inline void DIVU(CPU *c, uint32_t a, uint32_t b) {
 /* Emitted on every backward branch so polling loops let virtual time (and interrupts)
  * advance even when they only read RAM. */
 extern uint32_t psx_cur_func;   /* last recompiled function entered (diagnostics) */
+int psx_recent_calls(uint32_t *addr, uint32_t *ra, int max);   /* dispatch.c: newest first */
+const char *psx_overlay_in_slot(char slot);                    /* 'A'/'B' -> name or NULL */
+const char *psx_segment_of(uint32_t addr);
 #define BACKEDGE_BATCH 256
 extern int32_t psx_backedge_budget;
 void psx_backedge_slow(CPU *c);

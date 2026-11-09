@@ -16,6 +16,7 @@
 #include "display.h"
 #include "cd.h"
 #include "gpu.h"
+#include "log.h"
 
 /* One virtual frame (263 lines x 2152 cycles at 33.8688 MHz, ~59.84 Hz). Pacing to
    exactly this keeps the SPU's 44.1 kHz output in step with the audio device. */
@@ -29,9 +30,13 @@ static int frame_w = 320, frame_h = 240;
 static uint64_t frame_no;
 static LARGE_INTEGER qpf, t0;
 
+static volatile LONG in_modal;      /* dragging/resizing: no frames, but not a hang */
+
 static LRESULT CALLBACK wndproc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
     switch (msg) {
     case WM_CLOSE: exit(0);
+    case WM_ENTERSIZEMOVE: case WM_ENTERMENULOOP: in_modal = 1; break;
+    case WM_EXITSIZEMOVE: case WM_EXITMENULOOP: in_modal = 0; break;
     case WM_PAINT: {
         PAINTSTRUCT ps;
         BeginPaint(h, &ps);
@@ -41,6 +46,7 @@ static LRESULT CALLBACK wndproc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
     case WM_ERASEBKGND: return 1;
     case WM_KEYDOWN:
         if (wp == VK_F2 && !(lp & (1 << 30))) cd_swap(cd_disc() == 2 ? 1 : 2, 1.0);   /* swap discs */
+        if (wp == VK_F12 && !(lp & (1 << 30))) watchdog_snapshot("F12 pressed");   /* report */
         break;
     }
     return DefWindowProcA(h, msg, wp, lp);
@@ -112,6 +118,7 @@ static void present(void) {
 
 void display_vblank(void) {
     frame_no++;
+    watchdog_frame();
     gpu_output(frame_buf, &frame_w, &frame_h);
     if (dump_dir && frame_no % (uint64_t)dump_every == 0) {
         char path[512];
@@ -146,6 +153,13 @@ void display_vblank(void) {
 }
 
 int display_has_focus(void) { return hwnd && GetForegroundWindow() == hwnd; }
+
+/* ---- for the watchdog (read from its thread) ----------------------------------------- */
+uint64_t display_frame_count(void) { return frame_no; }
+int display_paused(void) { return in_modal; }
+int display_headless(void) { return headless; }
+const uint32_t *display_last_frame(int *w, int *h) { *w = frame_w; *h = frame_h; return frame_buf; }
+void display_save_vram(const char *path) { gpu_dump_vram_bmp(path); }
 
 void display_dump_final(void) {
     if (!dump_dir) return;

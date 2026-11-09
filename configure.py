@@ -13,6 +13,7 @@ Usage:
 import argparse
 import glob
 import os
+import subprocess
 import sys
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
@@ -28,6 +29,20 @@ def find_disc(n):
         if hits:
             return hits[0]
     return None
+
+
+def write_version():
+    """build/version.h: the git revision, shown at the top of Policenauts.log"""
+    try:
+        rev = subprocess.run(["git", "describe", "--always", "--dirty"], cwd=ROOT,
+                             capture_output=True, text=True, check=True).stdout.strip()
+    except (OSError, subprocess.CalledProcessError):
+        rev = "unknown"
+    text = f'#define PSX_VERSION "{rev}"\n'
+    path = os.path.join(ROOT, "build", "version.h")
+    if not os.path.exists(path) or open(path).read() != text:   # keep the mtime otherwise
+        with open(path, "w", newline="\n") as f:
+            f.write(text)
 
 
 def main():
@@ -50,6 +65,7 @@ def main():
 
     # Disc images for the runtime (Disc 2 is found next to Disc 1).
     os.makedirs(os.path.join(ROOT, "build"), exist_ok=True)
+    write_version()
     if args.disc2:
         disc2 = [args.disc2]
     else:                                # "... Disc 1 ..." -> "... Disc 2 ..." beside it
@@ -71,7 +87,7 @@ def main():
     w.variable("python", py)
     w.variable("cc", args.cc)
     w.variable("cflags", f"-std=c11 {args.opt} -g -fno-strict-aliasing -fwrapv "
-                         "-Iruntime -Igenerated -Wall -Wno-unused-label -Wno-unused-variable")
+                         "-Iruntime -Igenerated -Ibuild -Wall -Wno-unused-label -Wno-unused-variable")
     w.variable("gen_cflags", f"-std=c11 {args.opt} -fno-strict-aliasing -fwrapv "
                              "-Iruntime -Igenerated -w")
     w.variable("ldflags", "-lgdi32 -luser32 -lwinmm")

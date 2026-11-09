@@ -9,6 +9,8 @@ void bios_raise_exception(CPU *c);
 void bios_vblank_pads(void);
 int psx_irq_enabled(void);
 CPU *bios_current_cpu(void);
+void bios_describe(void);              /* kernel threads, to the log */
+int hw_hot_funcs(uint32_t *func, uint32_t *count, int max);   /* hw.c: busiest loops */
 
 /* hw.c - interrupts and time */
 enum { IRQ_VBLANK = 0, IRQ_GPU = 1, IRQ_CDROM = 2, IRQ_DMA = 3, IRQ_TMR0 = 4, IRQ_TMR1 = 5,

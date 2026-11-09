@@ -52,7 +52,7 @@ After that, `ninja` alone re-runs extraction and recompilation when their inputs
 | `recomp/segments.toml` | Code segments: file, load address, overlay slot |
 | `config/symbol_addrs.<seg>.txt` | splat-style symbols (`name = 0xADDR; // type:func`) — named functions and extra entry points |
 | `recomp/` | Recompiler: `mips.py` decode, `analyze.py` function discovery, `emit.py` C output |
-| `runtime/` | Hand-written runtime: memory, dispatch, BIOS/HW (currently stubs) |
+| `runtime/` | Hand-written runtime: memory, dispatch, BIOS HLE, CD/GPU/SPU/MDEC/memory cards, window and input, `log.c` + `watchdog.c` (log file, crash reports) |
 | `tools/` | `extract_all.py` (disc → `extracted/`), `psxiso.py` (ISO9660 from raw bin), `dpk.py` (FRID archives), `gen_task_syms.py` (kernel task table → `config/`), `disasm.py` (debug listing), optional m2c checkout |
 | `generated/` | Recompiler output (ignored) |
 
@@ -199,9 +199,39 @@ prints the hottest loop functions plus CPU/IRQ state, and `PSX_PEEK=addr,...` pr
 memory words when it stops (`PSX_DUMP_RAM=file` also writes all 2 MB of RAM).
 `PSX_TRACE_CARD=1` logs card and `bu00:` file operations. Display: `PSX_HEADLESS=1` (no window), `PSX_FAST=1` (no
 60 Hz pacing), `PSX_DUMP_DIR=dir` + `PSX_DUMP_EVERY=N` (frames as BMP, plus
-`final.bmp`/`vram.bmp` on a timed stop), `PSX_TRACE_GPU=1|2` (GP1 / also GP0). An
-unknown call target dumps RAM to `build/ram_crash.bin`.
+`final.bmp`/`vram.bmp` on a timed stop), `PSX_TRACE_GPU=1|2` (GP1 / also GP0).
 `tools/contact_sheet.py` turns BMP dumps into one PNG.
+
+### Log, crash reports and the watchdog
+
+Everything printed to the console also goes to `Policenauts.log` in the working directory. Each line
+is stamped with wall-clock time and virtual seconds. The previous run's log is kept as
+`Policenauts.prev.log`. The header records the build (`git describe`), Windows version, command
+line, disc images and every `PSX_*` switch in effect. `PSX_LOG=path` moves the log, and
+`PSX_LOG=none` turns it off.
+
+`runtime/watchdog.c` writes a report to the log and to `reports/<date>-<time>-<kind>/`:
+
+| Kind | When |
+|---|---|
+| `crash` | Native exception (access violation, stack overflow, …) or `abort()` |
+| `fatal` | `psx_fatal()`: unknown call target, unmapped read, unimplemented BIOS call or GTE command, … |
+| `hang` | No new frame for `PSX_WATCHDOG` seconds (default 10, `0` = off). Not fatal; the log notes when it runs again. Window drags, debuggers and PC sleep don't count. |
+| `snapshot` | F12 in the window, for soft-locks where frames keep coming |
+
+A report contains:
+- the reason;
+- the native call stack, which is the game's call chain since recompiled functions call each other
+  directly (`f_itp_8006EDF0  <- itp`, with names read from the exe's symbol table);
+- virtual time, the overlay in each slot, and the script number and PC when ITP is loaded;
+- MIPS registers, kernel threads, the busiest loops and the latest indirect calls.
+
+The folder also holds `ram.bin` (2 MB), `screen.bmp` (last frame), `card1.mcd` and a copy of the log;
+snapshots and fatals add `vram.bmp`. Crashes and fatals show a message box unless headless.
+
+Between reports, `[watchdog]` lines record overlay and script changes, so the log shows where in
+the game a problem began. `PSX_TEST_FAULT=kind@seconds` (`segv`, `stack`, `abort`, `fatal`,
+`hang`, `snapshot`) fails on purpose to check the reports.
 
 Headless title-screen check (presses Start during the intro movie):
 

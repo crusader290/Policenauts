@@ -7,6 +7,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include "psx.h"
+#include "log.h"
 
 static const SegmentInfo *slot_cache[256];
 
@@ -50,14 +51,42 @@ static RecompFunc lookup(uint32_t addr) {
     return NULL;
 }
 
-void call_dynamic(CPU *c, uint32_t addr) {
-    RecompFunc f = lookup(addr);
-    if (!f) {
-        fprintf(stderr, "call_dynamic: no function at %08X (ra=%08X)\n", addr, c->r[31]);
-        FILE *d = fopen("build/ram_crash.bin", "wb");
-        if (d) { fwrite(psx_ram, 1, PSX_RAM_SIZE, d); fclose(d); fprintf(stderr, "RAM dumped to build/ram_crash.bin\n"); }
-        abort();
+/* ---- diagnostics (watchdog.c) ------------------------------------------------------ */
+#define NRECENT 32
+static struct { uint32_t addr, ra; } recent[NRECENT];
+static uint32_t recent_n;
+
+int psx_recent_calls(uint32_t *addr, uint32_t *ra, int max) {   /* newest first */
+    int n = 0;
+    for (uint32_t i = recent_n; i > 0 && n < max && n < NRECENT; i--, n++) {
+        addr[n] = recent[(i - 1) % NRECENT].addr;
+        ra[n] = recent[(i - 1) % NRECENT].ra;
     }
+    return n;
+}
+
+const char *psx_overlay_in_slot(char slot) {        /* NULL: nothing recognisable */
+    for (int i = 0; i < psx_segment_count; i++)
+        if (psx_segments[i].slot == slot && sig_matches(&psx_segments[i])) return psx_segments[i].name;
+    return NULL;
+}
+
+const char *psx_segment_of(uint32_t addr) {         /* segment whose code is at addr now */
+    addr = (addr & 0x1FFFFFFFu) | 0x80000000u;
+    for (int i = 0; i < psx_segment_count; i++) {
+        const SegmentInfo *s = &psx_segments[i];
+        if (addr >= s->base && addr < s->base + s->size && (s->slot == 0 || sig_matches(s)))
+            return s->name;
+    }
+    return NULL;
+}
+
+void call_dynamic(CPU *c, uint32_t addr) {
+    recent[recent_n % NRECENT].addr = addr;
+    recent[recent_n % NRECENT].ra = c->r[31];
+    recent_n++;
+    RecompFunc f = lookup(addr);
+    if (!f) psx_fatal("call_dynamic: no function at %08X (ra=%08X)", addr, c->r[31]);
     f(c);
 }
 

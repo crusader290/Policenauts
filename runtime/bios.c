@@ -29,6 +29,7 @@
 #undef OpenEvent
 #include "psx.h"
 #include "bios.h"
+#include "log.h"
 
 /* ---- low-memory layout (BIOS kernel area, unused by the game) ------------------- */
 #define A_PCB        0x8000E000u
@@ -144,9 +145,8 @@ static void WINAPI fiber_main(void *param) {
     call_dynamic(&f->cpu, f->entry);
     /* entry function returned: real hardware jumps to the ra the thread started with */
     if (f->entry_ra) call_dynamic(&f->cpu, f->entry_ra);
-    fprintf(stderr, "fatal: thread on fiber %d (entry %08X) returned to ra=%08X\n",
+    psx_fatal("thread on fiber %d (entry %08X) returned to ra=%08X",
             id, f->entry, f->entry_ra);
-    exit(1);
 }
 
 static int alloc_fiber(void) {
@@ -197,7 +197,7 @@ static void switch_to_image(CPU *c, uint32_t tcb) {
             fprintf(stderr, "warning: stale TCB image at %08X (fiber %u seq %u) - starting fresh\n",
                     tcb, id, tag & 0xFFFFu);
         target = alloc_fiber();
-        if (target < 0) { fprintf(stderr, "fatal: out of fibers\n"); exit(1); }
+        if (target < 0) { psx_fatal("out of fibers"); }
         Fiber *f = &fibers[target];
         memset(&f->cpu, 0, sizeof f->cpu);
         load_image(&f->cpu, tcb);
@@ -207,7 +207,7 @@ static void switch_to_image(CPU *c, uint32_t tcb) {
         f->alive = 1;
         f->active = &f->cpu;
         f->handle = CreateFiber(256 * 1024, fiber_main, f);
-        if (!f->handle) { fprintf(stderr, "fatal: CreateFiber failed\n"); exit(1); }
+        if (!f->handle) { psx_fatal("CreateFiber failed"); }
     }
     if (trace_bios)
         fprintf(stderr, "[ChangeTh] fiber %d -> %d (tcb %08X)\n", cur_fiber, target, tcb);
@@ -342,8 +342,7 @@ void bios_raise_exception(CPU *c) {
         for (size_t i = 0; i < sizeof irq_resume_table / sizeof irq_resume_table[0]; i++)
             if (irq_resume_table[i].resume_pc == pc) handler = irq_resume_table[i].handler;
         if (!handler) {
-            fprintf(stderr, "fatal: exception hook resumes at unknown pc %08X\n", pc);
-            exit(1);
+            psx_fatal("exception hook resumes at unknown pc %08X", pc);
         }
     }
     /* BIOS exception entry: the interrupted context is saved into the current TCB */
@@ -387,8 +386,7 @@ void bios_raise_exception(CPU *c) {
 static void ReturnFromException(CPU *c) {
     (void)c;
     if (!in_exception) {
-        fprintf(stderr, "fatal: ReturnFromException outside exception\n");
-        exit(1);
+        psx_fatal("ReturnFromException outside exception");
     }
     __builtin_longjmp(irq_return_buf, 1);
 }
@@ -419,9 +417,8 @@ static void con_write(uint32_t buf, uint32_t len) {
 
 /* ---- dispatch ---------------------------------------------------------------------- */
 static void unimplemented(CPU *c, uint32_t vec) {
-    fprintf(stderr, "fatal: BIOS %02X:%02X unimplemented (a0=%08X a1=%08X a2=%08X ra=%08X)\n",
+    psx_fatal("BIOS %02X:%02X unimplemented (a0=%08X a1=%08X a2=%08X ra=%08X)",
             vec, c->r[9], c->r[4], c->r[5], c->r[6], c->r[31]);
-    exit(1);
 }
 
 static void bios_a0(CPU *c) {
@@ -538,14 +535,12 @@ void psx_syscall(CPU *c, uint32_t code, uint32_t pc) {
     }
     case 2: cop0_sr |= 0x401u; break;                                 /* ExitCriticalSection */
     default:
-        fprintf(stderr, "fatal: syscall a0=%X at %08X\n", c->r[4], pc);
-        exit(1);
+        psx_fatal("syscall a0=%X at %08X", c->r[4], pc);
     }
 }
 
 void psx_break(CPU *c, uint32_t code, uint32_t pc) {
-    fprintf(stderr, "fatal: break %X at %08X (ra=%08X)\n", code, pc, c->r[31]);
-    exit(1);
+    psx_fatal("break %X at %08X (ra=%08X)", code, pc, c->r[31]);
 }
 
 /* ---- boot ------------------------------------------------------------------------ */
@@ -579,3 +574,14 @@ void bios_boot(uint32_t pc, uint32_t gp, uint32_t sp) {
 }
 
 CPU *bios_current_cpu(void) { return &fibers[cur_fiber].cpu; }
+
+/* kernel threads for watchdog reports */
+void bios_describe(void) {
+    for (int i = 0; i < MAX_FIBERS; i++) {
+        Fiber *f = &fibers[i];
+        if (!f->alive && i != cur_fiber) continue;
+        const CPU *c = f->active ? f->active : &f->cpu;
+        log_printf("  %c fiber %2d  entry %08X  ra=%08X sp=%08X  switches=%u\n",
+                   i == cur_fiber ? '*' : ' ', i, f->entry, c->r[31], c->r[29], f->seq);
+    }
+}

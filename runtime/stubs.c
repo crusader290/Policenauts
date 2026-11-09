@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include "psx.h"
+#include "log.h"
 
 uint8_t psx_ram[PSX_RAM_SIZE];
 uint8_t psx_scratch[0x400];
@@ -13,6 +14,5 @@ void gte_write_data(CPU *c, int reg, uint32_t v) { (void)c; gte_data[reg] = v; }
 void gte_write_ctrl(CPU *c, int reg, uint32_t v) { (void)c; gte_ctrl[reg] = v; }
 void gte_command(CPU *c, uint32_t cmd) {
     (void)c;
-    fprintf(stderr, "fatal: gte_command %07X unimplemented\n", cmd);
-    exit(1);
+    psx_fatal("gte_command %07X unimplemented", cmd);
 }

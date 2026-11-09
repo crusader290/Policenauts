@@ -19,3 +19,5 @@ __pycache__/
 tools/m2c/
 tools/toolchain/
 saves/
+Policenauts*.log
+reports/
