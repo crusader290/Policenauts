@@ -52,7 +52,9 @@ int main(int argc, char **argv) {
     uint32_t pc, gp, sp;
     if (!load_exe(exe, &pc, &gp, &sp)) return 1;
     hw_init();
-    if (!cd_insert(psx_disc_path(0))) fprintf(stderr, "warning: no disc image (run configure.py or pass --disc1)\n");
+    const char *boot = getenv("PSX_BOOT_DISC");          /* start with disc 2 in the drive */
+    int disc = boot && atoi(boot) == 2 ? 2 : 1;
+    if (!cd_insert_disc(disc)) fprintf(stderr, "warning: no disc %d image (run configure.py or pass --disc%d)\n", disc, disc);
     bios_boot(pc, gp, sp ? sp : 0x801FFF00u);   /* SYSTEM.CNF STACK = 801fff00 */
     return 0;
 }

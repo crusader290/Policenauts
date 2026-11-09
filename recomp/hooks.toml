@@ -10,3 +10,36 @@ segment = "kernel"
 addr = 0x80023A08        # kernel debug log: appends a printf'd line to the on-screen ring
 name = "hook_kernel_log"
 mode = "before"
+
+# Konami's setjmp/longjmp (jmp_buf: ra, sp, fp, s0-s7, gp). ITP's main loop setjmps at
+# 0x8007F0BC and loading a saved game longjmps back to it with 1, which resumes the
+# script from the restored state. Recompiled code can't return into a caller's frame by
+# loading $ra/$sp, so every call site of setjmp also takes a host __builtin_setjmp and
+# the longjmp unwinds to it natively.
+[[hook]]
+segment = "kernel"
+addr = 0x8002EA68
+name = "setjmp"
+mode = "setjmp"
+
+[[hook]]
+segment = "kernel"
+addr = 0x8002EAA4
+name = "hook_longjmp"
+mode = "replace"
+
+# Kernel "is disc N in the drive?" (a0 = 1/2), polled while the game shows "Insert Disc N".
+# If the other disc's image is configured, swap to it like a player would.
+[[hook]]
+segment = "kernel"
+addr = 0x800199F4
+name = "hook_disc_check"
+mode = "before"
+
+# Kernel sprintf: when a game screen formats "Insert Disc %d", swap discs right away (the
+# lid takes a virtual second), so the player's OK finds the right disc.
+[[hook]]
+segment = "kernel"
+addr = 0x8002EBC0
+name = "hook_sprintf"
+mode = "before"

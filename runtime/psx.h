@@ -118,6 +118,7 @@ static inline void BACKEDGE(CPU *c) {
 /* ---- control flow / system ---------------------------------------------------- */
 void call_dynamic(CPU *c, uint32_t addr);   /* jalr, or calls into another overlay slot */
 void jump_dynamic(CPU *c, uint32_t addr);   /* unresolved jr / tail jump */
+void **psx_jmpbuf(uint32_t mips_buf);       /* host jmp_buf paired with a game setjmp buffer */
 void bios_call(CPU *c, uint32_t vector);    /* A0/B0/C0 table call, function number in t1 */
 void psx_syscall(CPU *c, uint32_t code, uint32_t pc);
 void psx_break(CPU *c, uint32_t code, uint32_t pc);

@@ -10,3 +10,7 @@ uint64_t cd_next_event(void);
 void cd_dma_read(uint32_t addr, uint32_t words);
 void cd_xa_sector(const uint8_t *raw);    /* XA-ADPCM sector for the audio path (spu.c) */
 void cd_audio_matrix(int m[4], int *mute); /* LL, LR, RR, RL volumes (0x80 = 1.0) */
+void cd_swap(int disc, double seconds);   /* open the lid, change to disc 1/2, close it after `seconds` */
+int cd_disc(void);                        /* disc in the drive: 1, 2 or 0 */
+int cd_insert_disc(int disc);             /* insert disc 1/2 (closed lid, at boot) */
+const char *psx_disc_path(int n);         /* image for disc n+1 (main.c), or NULL */

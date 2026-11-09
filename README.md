@@ -87,7 +87,7 @@ let virtual time and interrupts advance.
 ## Runtime
 
 - **BIOS HLE** (`runtime/bios.c`): A0/B0/C0 tables, critical sections, events, heap,
-  console output, pads, and memcard/file calls (`runtime/card.c`, currently "no card").
+  console output, pads, and memcard/file calls (`runtime/card.c`).
 - **Threads**: TCBs live in emulated RAM with the real BIOS layout, because the
   kernel copies whole TCB images between slots and rewrites the current-TCB pointer
   itself. `ChangeTh` saves registers into the current TCB and loads the target image,
@@ -109,6 +109,13 @@ let virtual time and interrupts advance.
   streaming at 1×/2×, data FIFO plus DMA channel 3. XA-ADPCM audio sectors go to the
   SPU's XA decoder through the controller's volume matrix and Mute/Demute. Disc paths come from `build/discs.txt`
   (written by `configure.py`) or `--disc1/--disc2`.
+- **Disc swap**: `cd_swap()` opens the lid (shell-open status, reads fail with "door
+  opened", disc commands error 08h), changes the image and closes it again; the
+  shell-open bit stays latched until the next Getstat, so libcd sees new media. When the
+  game formats "Insert Disc N" (kernel sprintf hook) the drive swaps to that disc on its
+  own, so pressing OK just continues; the kernel's disc check (`0x800199F4`) does the
+  same as a fallback. F2 in the window swaps by hand. `PSX_BOOT_DISC=2` boots with disc 2
+  in the drive (New Game then asks for, and gets, disc 1).
 - **Preemption**: on an interrupt the running context is saved into the current TCB, and
   `ReturnFromException` resumes whatever TCB is current afterwards. The kernel's
   scheduler preempts tasks by repointing the current TCB inside its VBlank handler.
@@ -142,9 +149,27 @@ let virtual time and interrupts advance.
   `PSX_WAV=file.wav` records the SPU output exactly (also headless).
 - **Window** (`runtime/display.c`): Win32/GDI, 4:3 letterboxed, shows the GPU display
   area (15- and 24-bit) every VBlank, paced to 59.94 Hz.
-- **Input** (`runtime/input.c`): keyboard → pad 1 through the BIOS pad buffers. Arrows
+- **Input** (`runtime/input.c`): keyboard and the first XInput gamepad → pad 1 through
+  the BIOS pad buffers. Gamepad buttons map by position (A/B/X/Y = ✕/○/□/△), bumpers and
+  triggers = L1/R1/L2/R2, Back = Select, and the left stick doubles as the D-pad, which
+  moves the pointer (`PSX_NO_PAD=1` turns it off; headless runs ignore it). Keyboard: arrows
   = D-pad, Enter = Start, Backspace = Select, Z/X/A/S = ✕/○/□/△, Q/W = L1/R1, 1/2 = L2/R2.
-  `PSX_INPUT="start@30,cross@41-42"` scripts presses in virtual seconds.
+  `PSX_INPUT="start@30,cross@41-42"` scripts presses in virtual seconds. This is the
+  Japanese release: ○ confirms and ✕ cancels. `PSX_INPUT=@file` reads a long script
+  from a file; `swap@T` in a script swaps discs.
+- **Memory cards** (`runtime/card.c`): slot 1 is a raw 128 KB image
+  (`saves/card1.mcd` by default, the usual `.mcd`/`.mcr` format, so it can be swapped
+  with emulators); slot 2 is empty. `PSX_CARD1=path` / `PSX_CARD2=path` pick images
+  (`none` = no card). A missing file is a freshly formatted card and is written on the
+  first change. The BIOS card calls (`_card_info`, `_card_load`, sector read/write) and
+  the `bu00:` file system (open/read/write/close/lseek, firstfile/nextfile, erase,
+  format) are implemented on the image; async transfers report one HwCARD IOE per
+  128-byte frame and a SwCARD IOE at the end, which is what the kernel counts on.
+  Multitap channels (`0x01`…) report no card.
+- **setjmp/longjmp**: loading a save longjmps back into ITP's main loop. Call sites
+  of the game's setjmp (`0x8002EA68`) also take a host `__builtin_setjmp`, and the
+  longjmp (`0x8002EAA4`) is a hook that restores the saved MIPS registers and unwinds
+  the C stack to that call site (`hooks.toml`, `mode = "setjmp"`).
 
 Debug switches: `PSX_TRACE_BIOS=1` (BIOS calls, fiber switches), `PSX_TRACE_HW=1`
 (register accesses), `PSX_TRACE_CD=1|2` (commands/interrupts, plus data requests),
@@ -152,7 +177,8 @@ Debug switches: `PSX_TRACE_BIOS=1` (BIOS calls, fiber switches), `PSX_TRACE_HW=1
 (key-ons, DMA, IRQs / also register writes), `PSX_TRACE_AUDIO=1` (underruns at exit),
 `PSX_MUTE=1`, and `PSX_MAX_SECONDS=N`, which stops after N virtual seconds and
 prints the hottest loop functions plus CPU/IRQ state, and `PSX_PEEK=addr,...` prints
-memory words when it stops. Display: `PSX_HEADLESS=1` (no window), `PSX_FAST=1` (no
+memory words when it stops (`PSX_DUMP_RAM=file` also writes all 2 MB of RAM).
+`PSX_TRACE_CARD=1` logs card and `bu00:` file operations. Display: `PSX_HEADLESS=1` (no window), `PSX_FAST=1` (no
 60 Hz pacing), `PSX_DUMP_DIR=dir` + `PSX_DUMP_EVERY=N` (frames as BMP, plus
 `final.bmp`/`vram.bmp` on a timed stop), `PSX_TRACE_GPU=1|2` (GP1 / also GP0). An
 unknown call target dumps RAM to `build/ram_crash.bin`.
@@ -173,6 +199,37 @@ New Game / Continue / Options menu renders correctly**. The Konami logo animatio
 the opening movie decode through the MDEC, with their XA audio; the title screen's
 BGM streams through the SPU.
 
+New Game → (autosave check) → segment #7: `ITP.BIN`, the script interpreter →
+`GAME00.SZ` → the prologue movie (`MV.BIN`, with the English subtitles and credits) →
+`GAME01.SZ` → "PROLOGUE / HOME", Jonathan's narration (VOX) → **the office desk scene is
+playable**: the pointer moves, ○ opens the verb menu, and Look plays the voiced
+description. The game autosaves at the scene start; Continue → Autosave File loads it
+and resumes in the office.
+
+Headless gameplay check (New Game, then Look at the photo on the desk):
+
+```bash
+PSX_CARD1=build/test.mcd PSX_INPUT="start@30,up@38,circle@39,left@480-480.4,up@481-481.4,circle@483,circle@486" PSX_HEADLESS=1 PSX_FAST=1 PSX_DUMP_DIR=build/frames PSX_MAX_SECONDS=495 ./build/policenauts.exe
+```
+
+In the office, ○ on an object opens its verb menu (Look, Open, Play messages…), ○ on
+empty space opens Go outside / System, and System → Save / Load works against the
+card (the game also rotates its autosave files). `tools/explore.py` writes input
+scripts that steer the pointer to screen coordinates and act there, and
+`tools/find_cursor.py` reports where the pointer is in frame dumps. The GTE is never
+used by the game (only its control registers are set at boot).
+
+The interpreter prints `sorry, assertion failed at file "itprcps.c", line 297.` whenever
+the System menu opens. That is in the game's own bytecode (`GAME00.SZ` has an `if` body
+that runs past its enclosing block's length; the script passes the game's CRC check), the
+assert only prints, and play continues.
+
+Overlay notes: `ITP.BIN` is 12 bytes longer than slot A, so it overlaps the start of
+slot B; dispatch tries every loaded segment that covers an address. The English patch
+puts its text routines in `KPRFONT.MDB` and tail-jumps back into the middle of ITP's
+string copier, so those two addresses are extra entry points in
+`config/symbol_addrs.itp.txt`.
+
 ### Kernel scheduler notes
 
 Tasks share BIOS TCB slot 0; the scheduler lives in slot 1 (`0x80020004`). It picks
@@ -189,17 +246,20 @@ recompiler's function bounds) and is the quickest way to read kernel code.
 
 ## Roadmap
 
-1. ~~BIOS HLE + threads~~ (done; memcard is still "no card")
+1. ~~BIOS HLE + threads~~ (done)
 2. ~~Interrupts/timing~~ (done: VBlank, root counters, DMA skeleton)
 3. ~~CD-ROM~~ (done, except disc swap)
 3b. ~~Scheduler stall after `open` launches~~ (fixed: BIOS root-counter events)
 4. ~~GPU + window + input~~ (done; title screen renders)
 4b. ~~MDEC + STR~~ (done; intro and opening movies play)
 5. ~~SPU~~ (done: voices, ADSR, reverb, XA; BGM/VOX/SE are SPU-streamed from `PN_*.PAC`)
-6. **Gameplay pass** ← next: play into the first scenes, fix what breaks (GTE is still
-   a stub that aborts if called; memory card is "no card")
-7. **Input**: gamepad support; light gun for the shooting sections
-8. Verify `ROLL` and slot B co-residency; memory card saves (`bu00:` backed by a host file)
+6. **Gameplay pass** (in progress): New Game reaches the first playable scene; memory
+   card saves and loads (autosave, System → Save/Load) work; disc swap works. Next: play
+   further (Karen's visit, Beyond Coast, the shooting and car-chase sections in
+   `SUBS1`–`SUBS4`) and fix what breaks.
+7. ~~Gamepad~~ (XInput done; untested with a real controller). Light gun (GunCon) for
+   the shooting sections
+8. Verify `ROLL` and slot B co-residency (`SUBS1` spans both slots)
 
 ## Reference toolchain
 

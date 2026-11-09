@@ -16,31 +16,36 @@ static int sig_matches(const SegmentInfo *s) {
     return s->nsig > 0;
 }
 
-static const SegmentInfo *segment_for(uint32_t addr) {
-    addr = (addr & 0x1FFFFFFFu) | 0x80000000u;
-    for (int i = 0; i < psx_segment_count; i++) {
-        const SegmentInfo *s = &psx_segments[i];
-        if (s->slot == 0 && addr >= s->base && addr < s->base + s->size) return s;
-    }
-    for (int i = 0; i < psx_segment_count; i++) {
-        const SegmentInfo *s = &psx_segments[i];
-        if (s->slot == 0 || addr < s->base || addr >= s->base + s->size) continue;
-        const SegmentInfo *c = slot_cache[(uint8_t)s->slot];
-        if (c && addr >= c->base && addr < c->base + c->size && sig_matches(c)) return c;
-        if (sig_matches(s)) { slot_cache[(uint8_t)s->slot] = s; return s; }
-    }
-    return NULL;
-}
-
-static RecompFunc lookup(uint32_t addr) {
-    const SegmentInfo *s = segment_for(addr);
-    if (!s) return NULL;
-    addr = (addr & 0x1FFFFFFFu) | 0x80000000u;
+static RecompFunc find_in(const SegmentInfo *s, uint32_t addr) {
     int lo = 0, hi = s->nfuncs - 1;
     while (lo <= hi) {
         int mid = (lo + hi) / 2;
         if (s->funcs[mid].addr == addr) return s->funcs[mid].fn;
         if (s->funcs[mid].addr < addr) lo = mid + 1; else hi = mid - 1;
+    }
+    return NULL;
+}
+
+/* Segments can overlap at their edges (ITP.BIN runs 12 bytes into slot B), so every
+ * segment that covers the address and is currently loaded gets a chance. */
+static RecompFunc lookup(uint32_t addr) {
+    addr = (addr & 0x1FFFFFFFu) | 0x80000000u;
+    RecompFunc f;
+    for (int i = 0; i < psx_segment_count; i++) {
+        const SegmentInfo *s = &psx_segments[i];
+        if (s->slot == 0 && addr >= s->base && addr < s->base + s->size && (f = find_in(s, addr)))
+            return f;
+    }
+    for (int i = 0; i < psx_segment_count; i++) {
+        const SegmentInfo *s = &psx_segments[i];
+        if (s->slot == 0 || addr < s->base || addr >= s->base + s->size) continue;
+        const SegmentInfo *c = slot_cache[(uint8_t)s->slot];
+        if (c && addr >= c->base && addr < c->base + c->size && sig_matches(c) && (f = find_in(c, addr)))
+            return f;
+        if (s != c && sig_matches(s) && (f = find_in(s, addr))) {
+            slot_cache[(uint8_t)s->slot] = s;
+            return f;
+        }
     }
     return NULL;
 }

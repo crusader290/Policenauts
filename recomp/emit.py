@@ -19,6 +19,9 @@ class Emitter:
         self.unresolved = []
         # (segment name, addr) -> {"name": ..., "mode": "before"|"replace"}
         self.hooks = hooks or {}
+        # setjmp implementations: their call sites also take a host __builtin_setjmp, so a
+        # longjmp hook (runtime/hooks.c) can unwind the C stack back to them.
+        self.setjmps = {a for (_, a), h in self.hooks.items() if h["mode"] == "setjmp"}
 
     # ---- call target resolution ------------------------------------------------
     def resolve(self, seg, t):
@@ -32,6 +35,8 @@ class Emitter:
 
     def call(self, seg, t, pc):
         fn = self.resolve(seg, t)
+        if fn and t in self.setjmps:
+            return f"if (!__builtin_setjmp(psx_jmpbuf(c->r[4]))) {fn}(c);"
         if fn:
             return f"{fn}(c);"
         self.unresolved.append((seg.name, pc, t))
@@ -196,7 +201,7 @@ class Emitter:
         sym = seg.symbols.get(f.start)
         out.append(f"/* {seg.name} {f.start:08X}-{f.end:08X}{'  ' + sym if sym else ''} */")
         hook = self.hooks.get((seg.name, f.start))
-        if hook:
+        if hook and hook["mode"] != "setjmp":
             out.append(f"void {hook['name']}(CPU *c);")
             out.append(f"static void {cname(seg, f.start)}_orig(CPU *c);")
             out.append(f"void {cname(seg, f.start)}(CPU *c) {{")

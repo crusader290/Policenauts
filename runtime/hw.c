@@ -287,6 +287,11 @@ static void dump_and_exit(CPU *c) {
         fprintf(stderr, "  [%08X] = %08X\n", a, MEM_LW(a & ~3u));
         peek = *end == ',' ? end + 1 : end;
     }
+    const char *ram = getenv("PSX_DUMP_RAM");       /* file for a 2 MB RAM image */
+    if (ram) {
+        FILE *f = fopen(ram, "wb");
+        if (f) { fwrite(psx_ram, 1, PSX_RAM_SIZE, f); fclose(f); fprintf(stderr, "RAM dumped to %s\n", ram); }
+    }
     display_dump_final();
     exit(3);
 }

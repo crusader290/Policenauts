@@ -37,7 +37,11 @@ typedef struct {
 static struct {
     FILE *disc;
     uint32_t disc_sectors;
+    int disc_no;                      /* 1 or 2 (0 = unknown/none) */
     int shell_open;
+    int shell_latch;                  /* ST_SHELL stays set until a Getstat after closing */
+    uint64_t shell_close_time;
+    int swap_to;                      /* disc inserted when the lid closes */
 
     int index;
     uint8_t ie, iflag, request;
@@ -75,6 +79,7 @@ static void lba_to_msf(uint32_t lba, uint8_t *m, uint8_t *s, uint8_t *f) {
 
 static uint8_t stat_byte(void) {
     uint8_t s = cd.shell_open ? ST_SHELL : ST_MOTOR;
+    if (cd.shell_latch) s |= ST_SHELL;
     if (cd.reading) s |= ST_READ;
     return s | cd.stat_extra;
 }
@@ -130,8 +135,18 @@ static void command(uint8_t cmd) {
         for (int i = 0; i < np; i++) fprintf(stderr, " %02X", p[i]);
         fprintf(stderr, "\n");
     }
+    if (cd.shell_open) {                                           /* lid open: no disc access */
+        switch (cmd) {
+        case 0x03: case 0x06: case 0x1B: case 0x15: case 0x16: case 0x1A: case 0x1E:
+            push_error(0x08);
+            return;
+        }
+    }
     switch (cmd) {
-    case 0x01: push_stat(T_FIRST, 3); break;                       /* Getstat */
+    case 0x01:                                                     /* Getstat */
+        push_stat(T_FIRST, 3);
+        if (!cd.shell_open) cd.shell_latch = 0;
+        break;
     case 0x02:                                                     /* Setloc */
         if (np < 3) { push_error(0x20); break; }
         cd.setloc = msf_to_lba(p[0], p[1], p[2]);
@@ -249,6 +264,14 @@ static void deliver_sector(void) {
 
 void cd_update(void) {
     uint64_t now = psx_cycles();
+    if (cd.shell_open && now >= cd.shell_close_time) {
+        const char *path = psx_disc_path(cd.swap_to - 1);
+        cd_insert(path);
+        cd.disc_no = cd.disc ? cd.swap_to : 0;
+        cd.shell_open = 0;
+        cd.shell_latch = 1;
+        fprintf(stderr, "[cd] lid closed: disc %d\n", cd.disc_no);
+    }
     while (cd.reading && now >= cd.next_sector) {
         cd.next_sector += sector_period();
         /* the controller holds at most one undelivered sector: drop if the CPU is behind */
@@ -270,7 +293,8 @@ void cd_update(void) {
 
 uint64_t cd_next_event(void) {
     uint64_t t = UINT64_MAX;
-    if (cd.reading) t = cd.next_sector;
+    if (cd.shell_open) t = cd.shell_close_time;
+    if (cd.reading && cd.next_sector < t) t = cd.next_sector;
     if (cd.iflag == 0 && cd.nq && cd.q[0].time < t) t = cd.q[0].time;
     return t;
 }
@@ -360,7 +384,35 @@ int cd_insert(const char *path) {
     return 1;
 }
 
+/* Open the lid, take the disc out, and close it again with disc `n` (1/2) one virtual
+ * `seconds` later, the way a player would swap discs. A read in progress fails with
+ * "door opened" (INT5, error 08h). */
+void cd_swap(int n, double seconds) {
+    if (cd.shell_open || n < 1 || n > 2 || !psx_disc_path(n - 1)) return;
+    fprintf(stderr, "[cd] lid opened: swapping to disc %d\n", n);
+    if (cd.reading) {
+        cd.reading = 0;
+        drop_sector_irqs();
+        uint8_t d[2] = { ST_SHELL | ST_ERROR, 0x08 };
+        push(0, 5, d, 2, 0);
+    }
+    cd_insert(NULL);
+    cd.disc_no = 0;
+    cd.shell_open = 1;
+    cd.swap_to = n;
+    cd.shell_close_time = psx_cycles() + (uint64_t)(seconds * (double)CPU_HZ);
+}
+
+int cd_disc(void) { return cd.disc_no; }
+
+int cd_insert_disc(int n) {
+    int ok = cd_insert(psx_disc_path(n - 1));
+    cd.disc_no = ok ? n : 0;
+    return ok;
+}
+
 void cd_init(void) {
+    cd.disc_no = 1;
     const char *t = getenv("PSX_TRACE_CD");
     cd.trace = t ? atoi(t) ? atoi(t) : 1 : 0;
     cd.vol[0] = cd.vol[2] = cd.vol_pending[0] = cd.vol_pending[2] = 0x80;

@@ -14,6 +14,7 @@
 #include <string.h>
 #include "audio.h"
 #include "display.h"
+#include "cd.h"
 #include "gpu.h"
 
 /* One virtual frame (263 lines x 2152 cycles at 33.8688 MHz, ~59.84 Hz). Pacing to
@@ -38,6 +39,9 @@ static LRESULT CALLBACK wndproc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
         return 0;
     }
     case WM_ERASEBKGND: return 1;
+    case WM_KEYDOWN:
+        if (wp == VK_F2 && !(lp & (1 << 30))) cd_swap(cd_disc() == 2 ? 1 : 2, 1.0);   /* swap discs */
+        break;
     }
     return DefWindowProcA(h, msg, wp, lp);
 }

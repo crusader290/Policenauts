@@ -1,1 +1,5 @@
 task_itp = 0x8006EBC8; // type:func
+// The English patch's text routines in KPRFONT.MDB (0x801136C8, 0x801137F8) replace the
+// string copier at 0x80070110 and tail-jump back into the middle of it.
+itp_strcpy_resume_8007013C = 0x8007013C; // type:func
+itp_strcpy_resume_8007016C = 0x8007016C; // type:func
