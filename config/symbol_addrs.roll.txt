@@ -1,0 +1,1 @@
+task_roll = 0x80088010; // type:func

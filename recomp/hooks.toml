@@ -1,0 +1,12 @@
+# Native hooks for recompiled functions (implemented in runtime/hooks.c).
+#
+# mode = "before"  : hook runs, then the recompiled original
+# mode = "replace" : hook runs instead of the original
+#
+# The hook gets the CPU state at function entry (arguments in a0-a3, stack in sp).
+
+[[hook]]
+segment = "kernel"
+addr = 0x80023A08        # kernel debug log: appends a printf'd line to the on-screen ring
+name = "hook_kernel_log"
+mode = "before"

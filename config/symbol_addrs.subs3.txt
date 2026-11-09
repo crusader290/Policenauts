@@ -1,0 +1,1 @@
+task_masshotx = 0x8008809C; // type:func

@@ -1,0 +1,4 @@
+# Keep LF everywhere; the generators (configure.py, recomp.py) write LF.
+* text=auto eol=lf
+*.bin binary
+*.exe binary

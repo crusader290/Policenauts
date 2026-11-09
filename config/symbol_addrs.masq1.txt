@@ -1,0 +1,1 @@
+task_masq_1 = 0x8008A204; // type:func

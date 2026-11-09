@@ -1,0 +1,18 @@
+# Game data and anything derived from it - never commit
+Policenauts PSX*/
+*.bin
+*.cue
+*.iso
+extracted/
+generated/
+
+# Build outputs
+build/
+build.ninja
+.ninja_deps
+.ninja_log
+
+# Tooling
+.venv/
+__pycache__/
+tools/m2c/

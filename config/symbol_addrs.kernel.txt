@@ -1,0 +1,2 @@
+task_sound = 0x80012DEC; // type:func
+task_display = 0x800128B0; // type:func

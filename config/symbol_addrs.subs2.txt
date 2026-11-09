@@ -1,0 +1,2 @@
+task_bm = 0x80088350; // type:func
+task_lbyshotx = 0x8008853C; // type:func

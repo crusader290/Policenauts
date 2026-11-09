@@ -1,0 +1,1 @@
+task_blood = 0x800883E4; // type:func

@@ -1,0 +1,1 @@
+task_projector = 0x80087614; // type:func

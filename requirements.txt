@@ -1,0 +1,4 @@
+# The recompiler itself (recomp/) has no dependencies.
+rabbitizer>=1.16      # tools/disasm.py
+# m2c (readable C for functions we replace by hand) is optional:
+#   git clone https://github.com/matt-kempster/m2c tools/m2c && pip install -e tools/m2c

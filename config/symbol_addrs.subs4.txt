@@ -1,0 +1,1 @@
+task_tkshotx = 0x8008812C; // type:func

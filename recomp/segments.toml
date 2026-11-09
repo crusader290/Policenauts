@@ -1,0 +1,100 @@
+# Code segments of Policenauts (PSX, SLPS-00215/00216, English patch v1.0).
+# Both discs ship byte-identical SLPS executables and BIN.DPK, so one build serves both.
+#
+# Memory map (from the kernel's overlay table at 0x80010034):
+#   0x80010000  kernel (SLPS_002.15)       resident
+#   0x80043E04  DISPLAY.BIN                resident display/text library
+#   0x8006CEE8  slot A: ITP | ENGLISH | SUBS1 | MENU
+#   0x80087614  slot B: OPEN | MV | BLOOD | MASQ1 | MASQ2 | SUBS2 | SUBS3 | SUBS4 | ROLL
+
+[[segment]]
+name = "kernel"
+file = "extracted/disc1/NAUTS/SLPS_002.15"
+skip = 0x800          # PS-X EXE header
+base = 0x80010000
+entry = 0x800127B4
+resident = true
+
+[[segment]]
+name = "display"
+file = "extracted/disc1/bin/DISPLAY.BIN"
+base = 0x80043E04
+resident = true
+
+[[segment]]
+name = "itp"
+file = "extracted/disc1/bin/ITP.BIN"
+base = 0x8006CEE8
+slot = "A"
+
+[[segment]]
+name = "english"
+file = "extracted/disc1/bin/ENGLISH.BIN"
+base = 0x8006CEE8
+slot = "A"
+
+[[segment]]
+name = "subs1"
+file = "extracted/disc1/bin/SUBS1.BIN"
+base = 0x8006CEE8
+slot = "A"
+
+[[segment]]
+name = "menu"
+file = "extracted/disc1/bin/MENU.BIN"
+base = 0x8006CEE8
+slot = "A"
+
+[[segment]]
+name = "open"
+file = "extracted/disc1/bin/OPEN.BIN"
+base = 0x80087614
+slot = "B"
+
+[[segment]]
+name = "mv"
+file = "extracted/disc1/bin/MV.BIN"
+base = 0x80087614
+slot = "B"
+
+[[segment]]
+name = "blood"
+file = "extracted/disc1/bin/BLOOD.BIN"
+base = 0x80087614
+slot = "B"
+
+[[segment]]
+name = "masq1"
+file = "extracted/disc1/bin/MASQ1.BIN"
+base = 0x80087614
+slot = "B"
+
+[[segment]]
+name = "masq2"
+file = "extracted/disc1/bin/MASQ2.BIN"
+base = 0x80087614
+slot = "B"
+
+[[segment]]
+name = "subs2"
+file = "extracted/disc1/bin/SUBS2.BIN"
+base = 0x80087614
+slot = "B"
+
+[[segment]]
+name = "subs3"
+file = "extracted/disc1/bin/SUBS3.BIN"
+base = 0x80087614
+slot = "B"
+
+[[segment]]
+name = "subs4"
+file = "extracted/disc1/bin/SUBS4.BIN"
+base = 0x80087614
+slot = "B"
+
+[[segment]]
+name = "roll"
+file = "extracted/disc1/bin/ROLL.BIN"
+base = 0x80087614
+slot = "B"
