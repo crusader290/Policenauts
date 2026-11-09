@@ -49,6 +49,8 @@ void call_dynamic(CPU *c, uint32_t addr) {
     RecompFunc f = lookup(addr);
     if (!f) {
         fprintf(stderr, "call_dynamic: no function at %08X (ra=%08X)\n", addr, c->r[31]);
+        FILE *d = fopen("build/ram_crash.bin", "wb");
+        if (d) { fwrite(psx_ram, 1, PSX_RAM_SIZE, d); fclose(d); fprintf(stderr, "RAM dumped to build/ram_crash.bin\n"); }
         abort();
     }
     f(c);

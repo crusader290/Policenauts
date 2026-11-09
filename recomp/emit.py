@@ -292,6 +292,10 @@ class Emitter:
             out.append(f"    c->r[31] = 0x{a + 8:08X}u;")
             if ds:
                 out.append("    " + ds)
+            if i.target == a + 8:
+                # `jal .+8`: position trick to read the PC into ra; execution just
+                # continues at the next instruction
+                return out
             out.append("    " + self.call(seg, i.target, a))
             return out
         if n == "j":

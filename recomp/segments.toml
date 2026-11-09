@@ -6,6 +6,7 @@
 #   0x80043E04  DISPLAY.BIN                resident display/text library
 #   0x8006CEE8  slot A: ITP | ENGLISH | SUBS1 | MENU
 #   0x80087614  slot B: OPEN | MV | BLOOD | MASQ1 | MASQ2 | SUBS2 | SUBS3 | SUBS4 | ROLL
+#   0x80111308  kprfont: code in FONT.DPK/KPRFONT.MDB from offset 0x10000 (font at 0x80101308)
 
 [[segment]]
 name = "kernel"
@@ -98,3 +99,15 @@ name = "roll"
 file = "extracted/disc1/bin/ROLL.BIN"
 base = 0x80087614
 slot = "B"
+
+# Native code embedded in the kanji font module (FONT.DPK/KPRFONT.MDB, from offset
+# 0x10000; code and small data words are interleaved). The display manager always loads the
+# font at 0x80101308 and calls these routines with absolute jal. Only the font's
+# 0x188-byte header is modified at runtime; the code is never patched.
+[[segment]]
+name = "kprfont"
+file = "extracted/disc1/font/KPRFONT.MDB"
+skip = 0x10000
+pad = 0x20          # the last routine's delay slot lies past the file end (DPK zero padding)
+base = 0x80111308
+resident = true

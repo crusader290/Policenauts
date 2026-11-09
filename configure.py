@@ -55,6 +55,7 @@ def main():
                          "-Iruntime -Igenerated -Wall -Wno-unused-label -Wno-unused-variable")
     w.variable("gen_cflags", f"-std=c11 {args.opt} -fno-strict-aliasing -fwrapv "
                              "-Iruntime -Igenerated -w")
+    w.variable("ldflags", "-lgdi32 -luser32 -lwinmm")
     w.newline()
 
     w.rule("extract", "$python tools/extract_all.py \"$disc\" extracted",

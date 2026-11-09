@@ -53,7 +53,7 @@ Both discs ship byte-identical `SLPS_002.1x` and `BIN.DPK`, so one build serves 
 | `0x80043E04` | `DISPLAY.BIN` — resident display/text library |
 | `0x8006CEE8` | slot A: `ITP` (script interpreter) · `ENGLISH` · `SUBS1` (carchase, shtrainer) · `MENU` |
 | `0x80087614` | slot B: `OPEN` · `MV` (projector/FMV) · `BLOOD` · `MASQ1/2` · `SUBS2/3/4` (shooting) · `ROLL` |
-| `0x8011xxxx` | unknown — 6 calls from ITP/DISPLAY land here (code loaded from another pack?) |
+| `0x80111308` | code embedded in the kanji font module (`FONT.DPK/KPRFONT.MDB` from offset `0x10000`; the font always loads at `0x80101308`) |
 
 The load addresses come from the kernel's overlay table at `0x80010034`. Task entry
 points come from the launch table at `0x800309E8` (36-byte records
@@ -80,7 +80,7 @@ context-switch emulation is needed. GTE use is close to zero: this is a 2D engin
 - ASPSX emits a MIPS-II trap word (`0x00001770`) for the `INT_MIN / -1` division check;
   it's treated as `break`.
 
-Current output: 2,429 functions over 15 segments, 6 dynamic call sites. Every
+Current output: 2,442 functions over 16 segments, 2 dynamic call sites (font code calling into slot A). Every
 backward branch carries a cheap `BACKEDGE()` countdown, so loops that poll RAM still
 let virtual time and interrupts advance.
 
@@ -116,18 +116,41 @@ let virtual time and interrupts advance.
   recompiled function, run before it or instead of it. The kernel's debug log is
   printed to stderr this way (`[K] ...`; silence with `PSX_QUIET=1`).
 
+- **GPU** (`runtime/gpu.c`): 1024×512 VRAM, GP0 polygons (flat/gouraud/textured,
+  4/8/15-bit CLUT textures, texture window, raw/modulated), lines and polylines, rects
+  and sprites with flips, fills, VRAM copies and CPU↔VRAM transfers, semi-transparency
+  modes, mask bits, dithering. GP1 display control. Software rasterizer with top-left
+  fill, quads drawn as two triangles, and 16.16 attribute gradients. Fed by GP0/GP1
+  writes and DMA channel 2 (linked lists and blocks).
+- **Window** (`runtime/display.c`): Win32/GDI, 4:3 letterboxed, shows the GPU display
+  area (15- and 24-bit) every VBlank, paced to 59.94 Hz.
+- **Input** (`runtime/input.c`): keyboard → pad 1 through the BIOS pad buffers. Arrows
+  = D-pad, Enter = Start, Backspace = Select, Z/X/A/S = ✕/○/□/△, Q/W = L1/R1, 1/2 = L2/R2.
+  `PSX_INPUT="start@30,cross@41-42"` scripts presses in virtual seconds.
+
 Debug switches: `PSX_TRACE_BIOS=1` (BIOS calls, fiber switches), `PSX_TRACE_HW=1`
 (register accesses), `PSX_TRACE_CD=1|2` (commands/interrupts, plus data requests),
 `PSX_TRACE_DMA=1`, and `PSX_MAX_SECONDS=N`, which stops after N virtual seconds and
-prints the hottest loop functions plus CPU/IRQ state.
+prints the hottest loop functions plus CPU/IRQ state, and `PSX_PEEK=addr,...` prints
+memory words when it stops. Display: `PSX_HEADLESS=1` (no window), `PSX_FAST=1` (no
+60 Hz pacing), `PSX_DUMP_DIR=dir` + `PSX_DUMP_EVERY=N` (frames as BMP, plus
+`final.bmp`/`vram.bmp` on a timed stop), `PSX_TRACE_GPU=1|2` (GP1 / also GP0). An
+unknown call target dumps RAM to `build/ram_crash.bin`.
+`tools/contact_sheet.py` turns BMP dumps into one PNG.
+
+Headless title-screen check (presses Start during the intro movie):
+
+```bash
+PSX_INPUT="start@30" PSX_HEADLESS=1 PSX_FAST=1 PSX_DUMP_DIR=build/frames PSX_MAX_SECONDS=45 ./build/policenauts.exe
+```
 
 Boot status: crt0 → Multi Task Scheduler v1.31 → CD mounted → `KERNEL.SC` read →
-file tables for DEV/BIN/FONT/DATA DPKs built → `sound` task (SdMain/SdInt/SdSet) →
-`DISPLAY.BIN` loaded and display manager v0.98 started → kanji font, RUBI data and
-the 327-entry DATA table loaded → segment #12: `OPEN.BIN` loaded into slot B →
-intro runs: `dm_screen_init`, `PAK/KONAMI.TIM` loaded, XA audio from `VZ003XA.STR`,
-then the opening movie streams (CD ReadS at 2×, MDEC DMA in/out, ~15k GPU DMA lists
-per minute). Nothing is visible yet: GPU drawing and MDEC decoding aren't implemented.
+sound task → `DISPLAY.BIN` + display manager → kanji font, RUBI data, DATA table →
+segment #12: `OPEN.BIN` intro → Konami logo TIM uploaded, XA audio, opening movie
+(`VZ003XA.STR`, 1244 frames) streams and loops as attract mode. Pressing Start →
+segment #15: `MENU.BIN` → memory card check ("no card") → **title screen with the
+New Game / Continue / Options menu renders correctly**. The FMV itself is still blank
+(no MDEC) and there's no sound yet.
 
 ### Kernel scheduler notes
 
@@ -149,11 +172,11 @@ recompiler's function bounds) and is the quickest way to read kernel code.
 2. ~~Interrupts/timing~~ (done: VBlank, root counters, DMA skeleton)
 3. ~~CD-ROM~~ (done, except XA decode and disc swap)
 3b. ~~Scheduler stall after `open` launches~~ (fixed: BIOS root-counter events)
-4. **GPU** ← next: needed to see anything
+4. ~~GPU + window + input~~ (done; title screen renders)
+4b. **MDEC + STR** ← next: makes the intro FMV visible
 5. **SPU**: ADPCM voices, ADSR, reverb (BGM/VOX/SE are SPU-streamed from `PN_*.PAC`)
-6. **MDEC + STR**: FMV (`MOVIE/*.MOV`, `VZ003XA.STR`)
-7. **Input**: pad via SIO; light gun for the shooting sections
-8. Find the `0x8011xxxx` code; verify `ROLL` and slot B co-residency
+7. **Input**: gamepad support; light gun for the shooting sections
+8. Verify `ROLL` and slot B co-residency; memory card saves (`bu00:` backed by a host file)
 
 ## Reference toolchain
 

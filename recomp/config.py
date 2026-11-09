@@ -13,6 +13,7 @@ def load_segments(path=None):
     segs = []
     for s in cfg["segment"]:
         data = open(os.path.join(ROOT, s["file"]), "rb").read()[s.get("skip", 0):]
+        data += b"\0" * s.get("pad", 0)   # bytes that follow the file in RAM (sector padding)
         seg = Segment(s["name"], data, s["base"], slot=s.get("slot"),
                       resident=s.get("resident", False), entry=s.get("entry"))
         load_symbols(seg, os.path.join(ROOT, "config", f"symbol_addrs.{seg.name}.txt"))

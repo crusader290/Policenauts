@@ -58,8 +58,8 @@ class Ins:
                 return None
             if name in ("mult", "multu", "div", "divu") and (w & 0x0000FFC0):
                 return None
-            if name in ("sll", "srl", "sra") and self.rs:
-                return None
+            # sll/srl/sra ignore rs; hand-written code in the font module leaves it set
+            # (e.g. 0x018C6200 = sll $t4,$t4,8 with rs=$t4), so don't reject it.
             if name in ("add", "addu", "sub", "subu", "and", "or", "xor", "nor", "slt", "sltu",
                         "sllv", "srlv", "srav") and self.sa:
                 return None

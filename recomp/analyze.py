@@ -88,8 +88,14 @@ def _walk(seg, start, known=frozenset()):
     calls, tails = set(), set()
     work = [start]
     seen = set()
+    ds_only = set()          # addresses so far reached only as a delay slot
     while work:
         pc = work.pop()
+        if pc in ds_only:
+            # branched straight into a delay slot: that instruction is recorded already,
+            # execution continues sequentially after it
+            ds_only.discard(pc)
+            pc += 4
         while True:
             if pc in seen:
                 break
@@ -108,6 +114,8 @@ def _walk(seg, start, known=frozenset()):
                 if not d.valid or d.has_delay:
                     return None
                 insns[ds] = d
+                if ds not in seen:
+                    ds_only.add(ds)
                 seen.add(ds)
             n = i.name
             if i.is_branch:
@@ -121,7 +129,8 @@ def _walk(seg, start, known=frozenset()):
                 pc += 8
                 continue
             if n == "jal":
-                calls.add(i.target)
+                if i.target != pc + 8:          # `jal .+8` only loads the PC into ra
+                    calls.add(i.target)
                 pc += 8
                 continue
             if n == "jalr":
@@ -280,12 +289,17 @@ _JAL_CACHE = {}
 
 
 def _jal_targets(seg):
+    """Call targets for seeding other segments: every jal, plus j that leaves `seg`
+    (a cross-segment tail call)."""
     if seg.name not in _JAL_CACHE:
         ts = set()
         for a in range(seg.base, seg.base + seg.size, 4):
             w = seg.word(a)
-            if (w >> 26) == 3:
-                ts.add(((a + 4) & 0xF0000000) | ((w & 0x03FFFFFF) << 2))
+            op = w >> 26
+            if op in (2, 3):
+                t = ((a + 4) & 0xF0000000) | ((w & 0x03FFFFFF) << 2)
+                if op == 3 or not seg.contains(t):
+                    ts.add(t)
         _JAL_CACHE[seg.name] = ts
     return _JAL_CACHE[seg.name]
 

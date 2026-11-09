@@ -9,6 +9,8 @@
 #include <stdlib.h>
 #include "bios.h"
 #include "cd.h"
+#include "display.h"
+#include "gpu.h"
 
 #define CPU_HZ         33868800ull
 #define LINE_CYCLES    2152ull          /* NTSC: 263 lines at ~59.8 Hz */
@@ -105,8 +107,8 @@ static uint32_t timer_read(int n, int reg) {
 /* ---- GPU status ------------------------------------------------------------------ */
 static uint32_t gpustat(void) {
     uint64_t line = (now / LINE_CYCLES) % FRAME_LINES;
-    uint32_t odd = (line < VBLANK_LINE) ? (uint32_t)(line & 1) : 0;
-    return 0x1C000000u | (odd << 31);
+    int odd = (line < VBLANK_LINE) ? (int)(line & 1) : 0;
+    return gpu_stat(odd);
 }
 
 /* ---- DMA ------------------------------------------------------------------------- */
@@ -139,12 +141,28 @@ static void dma_run(int ch) {
         cd_dma_read(madr, words);
         break;
     }
-    case 2:                                /* GPU: linked list or block - consumed, not drawn yet */
-        if (((chcr >> 9) & 3) == 2) {
+    case 2: {                              /* GPU */
+        uint32_t sync = (chcr >> 9) & 3;
+        if (sync == 2) {                   /* linked list (ordering table) */
             uint32_t a = madr, guard = 0;
-            while (a != 0xFFFFFF && guard++ < 0x40000) a = MEM_LW(0x80000000u | a) & 0xFFFFFF;
+            while (guard++ < 0x100000) {
+                uint32_t hdr = MEM_LW(0x80000000u | a);
+                uint32_t n = hdr >> 24;
+                for (uint32_t i = 1; i <= n; i++) gpu_gp0(MEM_LW(0x80000000u | ((a + 4 * i) & 0x1FFFFC)));
+                if ((hdr & 0x800000u) || (hdr & 0xFFFFFFu) == 0xFFFFFFu) break;
+                a = hdr & 0x1FFFFC;
+            }
+        } else {                           /* block transfer: VRAM upload or download */
+            uint32_t words = (bcr & 0xFFFF) ? (bcr & 0xFFFF) : 0x10000;
+            if (sync == 1) words *= (bcr >> 16) ? (bcr >> 16) : 1;
+            for (uint32_t i = 0; i < words; i++) {
+                uint32_t a = 0x80000000u | ((madr + 4 * i) & 0x1FFFFC);
+                if (chcr & 1) gpu_gp0(MEM_LW(a));
+                else MEM_SW(a, gpu_read());
+            }
         }
         break;
+    }
     default:
         if (trace_hw) fprintf(stderr, "[dma] ch%d madr=%08X bcr=%08X chcr=%08X (ignored)\n",
                               ch, madr, bcr, chcr);
@@ -164,6 +182,7 @@ static void run_events(CPU *c) {
         next_vblank += FRAME_CYCLES;
         psx_irq_raise(IRQ_VBLANK);
         bios_vblank_pads();
+        display_vblank();
     }
     for (int n = 0; n < 3; n++) timer_check(n);
     cd_update();
@@ -229,6 +248,15 @@ static void dump_and_exit(CPU *c) {
         fprintf(stderr, "  %08X  %u\n", samples[best].func, samples[best].n);
         samples[best].n = 0;
     }
+    const char *peek = getenv("PSX_PEEK");          /* comma-separated addresses */
+    while (peek && *peek) {
+        char *end;
+        uint32_t a = (uint32_t)strtoul(peek, &end, 16);
+        if (end == peek) break;
+        fprintf(stderr, "  [%08X] = %08X\n", a, MEM_LW(a & ~3u));
+        peek = *end == ',' ? end + 1 : end;
+    }
+    display_dump_final();
     exit(3);
 }
 
@@ -248,6 +276,7 @@ uint32_t hw_read(uint32_t addr, int size) {
     else if (p == 0x1F801074u) v = i_mask;
     else if (p >= 0x1F801100u && p < 0x1F801130u) v = timer_read((p >> 4) & 3, p & 0xC);
     else if (p == 0x1F801814u) v = gpustat();
+    else if (p == 0x1F801810u) v = gpu_read();
     else if (p >= 0x1F801800u && p < 0x1F801804u) {
         v = cd_read(p & 3);
         if (size > 1) fprintf(stderr, "warning: %d-bit CD register read %08X\n", size * 8, addr);
@@ -274,6 +303,8 @@ void hw_write(uint32_t addr, uint32_t val, int size) {
     if (p == 0x1F801074u) { i_mask = val & 0x7FF; return; }
     if (p >= 0x1F801100u && p < 0x1F801130u) { timer_write((p >> 4) & 3, p & 0xC, val); return; }
     if (p >= 0x1F801800u && p < 0x1F801804u) { cd_write(p & 3, (uint8_t)val); return; }
+    if (p == 0x1F801810u) { gpu_gp0(val); return; }
+    if (p == 0x1F801814u) { gpu_gp1(val); return; }
     if (p == DICR) {                                          /* flags are write-1-to-clear */
         uint32_t d = IO32(DICR);
         d = (d & 0xFF000000u & ~(val & 0x7F000000u)) | (val & 0x00FFFFFFu);
@@ -290,7 +321,6 @@ void hw_write(uint32_t addr, uint32_t val, int size) {
     fprintf(stderr, "warning: write%d to unmapped %08X = %08X\n", size * 8, addr, val);
 }
 
-uint16_t psx_pad_buttons(void) { return 0xFFFFu; }
 
 void hw_init(void) {
     trace_hw = getenv("PSX_TRACE_HW") != NULL;
@@ -298,4 +328,6 @@ void hw_init(void) {
     const char *ms = getenv("PSX_MAX_SECONDS");
     if (ms) max_cycles = (uint64_t)(atof(ms) * (double)CPU_HZ);
     cd_init();
+    gpu_init();
+    display_init();
 }
