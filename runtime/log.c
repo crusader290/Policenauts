@@ -122,8 +122,8 @@ int log_copy_to(const char *dst) {
 }
 
 static void log_exit(void) {
+    log_flush();                       /* stderr output still in the pipe goes first */
     log_printf("[log] exit\n");
-    log_flush();
 }
 
 static void header(int argc, char **argv) {
